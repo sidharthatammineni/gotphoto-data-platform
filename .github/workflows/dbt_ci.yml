@@ -87,6 +87,34 @@ jobs:
         working-directory: gotphoto
         run: dbt snapshot 2>&1 | tee /tmp/dbt_snapshot.log
 
+      - name: Publish test results summary
+        if: always()
+        working-directory: gotphoto
+        run: |
+          echo "## dbt Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Layer | Step | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Compile | dbt compile | ${{ steps.compile.outcome == 'success' && '✅ Passed' || steps.compile.outcome == 'failure' && '❌ Failed' || '⏭️ Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Staging | dbt run | ${{ steps.run_staging.outcome == 'success' && '✅ Passed' || steps.run_staging.outcome == 'failure' && '❌ Failed' || '⏭️ Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Staging | dbt test | ${{ steps.test_staging.outcome == 'success' && '✅ Passed' || steps.test_staging.outcome == 'failure' && '❌ Failed' || '⏭️ Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Marts | dbt run | ${{ steps.run_marts.outcome == 'success' && '✅ Passed' || steps.run_marts.outcome == 'failure' && '❌ Failed' || '⏭️ Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Marts | dbt test | ${{ steps.test_marts.outcome == 'success' && '✅ Passed' || steps.test_marts.outcome == 'failure' && '❌ Failed' || '⏭️ Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Snapshot | orders_snapshot | ${{ steps.snapshot.outcome == 'success' && '✅ Passed' || steps.snapshot.outcome == 'failure' && '❌ Failed' || '⏭️ Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Parse and list individual test results from logs
+          echo "### Staging Tests" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -E "PASS|FAIL|ERROR" /tmp/dbt_test_staging.log 2>/dev/null | grep -v "^$" || echo "No results"
+          grep -E "PASS|FAIL|ERROR" /tmp/dbt_test_staging.log 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "No results" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          echo "### Mart Tests" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -E "PASS|FAIL|ERROR" /tmp/dbt_test_marts.log 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "No results" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
       - name: Elementary alerts (Slack — data quality failures)
         if: always()
         working-directory: gotphoto
