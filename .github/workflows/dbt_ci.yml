@@ -19,6 +19,10 @@ jobs:
       DBT_SNOWFLAKE_WAREHOUSE: ${{ secrets.DBT_SNOWFLAKE_WAREHOUSE }}
 
     steps:
+      - name: Record start time
+        id: timer
+        run: echo "start=$(date +%s)" >> $GITHUB_OUTPUT
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -53,25 +57,45 @@ jobs:
         working-directory: gotphoto
         run: dbt deps
 
-      - name: dbt compile (syntax check)
+      - name: dbt compile
+        id: compile
         working-directory: gotphoto
-        run: dbt compile
+        run: dbt compile 2>&1 | tee /tmp/dbt_compile.log
 
-      - name: dbt run (staging only for CI speed)
+      - name: dbt run — staging
+        id: run_staging
         working-directory: gotphoto
-        run: dbt run --select staging
+        run: dbt run --select staging 2>&1 | tee /tmp/dbt_run_staging.log
 
-      - name: dbt test (staging)
+      - name: dbt test — staging
+        id: test_staging
         working-directory: gotphoto
-        run: dbt test --select staging
+        run: dbt test --select staging 2>&1 | tee /tmp/dbt_test_staging.log
 
-      - name: dbt run (marts)
+      - name: dbt run — marts
+        id: run_marts
         working-directory: gotphoto
-        run: dbt run --select marts
+        run: dbt run --select marts 2>&1 | tee /tmp/dbt_run_marts.log
 
-      - name: dbt test (marts)
+      - name: dbt test — marts
+        id: test_marts
         working-directory: gotphoto
-        run: dbt test --select marts
+        run: dbt test --select marts 2>&1 | tee /tmp/dbt_test_marts.log
+
+      - name: dbt snapshot
+        id: snapshot
+        working-directory: gotphoto
+        run: dbt snapshot 2>&1 | tee /tmp/dbt_snapshot.log
+
+      - name: Elementary alerts (Slack — data quality failures)
+        if: always()
+        working-directory: gotphoto
+        run: |
+          edr monitor \
+            --slack-webhook "${{ secrets.SLACK_WEBHOOK_URL }}" \
+            --project-dir /home/runner/work/GotPhoto/GotPhoto/gotphoto \
+            --profiles-dir ~/.dbt \
+            --days-back 1 || true
 
       - name: Cleanup CI schema
         if: always()
@@ -80,3 +104,214 @@ jobs:
           dbt run-operation drop_schema \
             --args "{schema: dbt_ci_${{ github.run_id }}, database: ${DBT_SNOWFLAKE_DATABASE}}" \
             || true
+
+      # ── SUCCESS NOTIFICATION ──────────────────────────────────────────────
+      - name: Compute runtime
+        id: runtime
+        if: always()
+        run: |
+          END=$(date +%s)
+          START=${{ steps.timer.outputs.start }}
+          DURATION=$((END - START))
+          MINS=$((DURATION / 60))
+          SECS=$((DURATION % 60))
+          echo "duration=${MINS}m ${SECS}s" >> $GITHUB_OUTPUT
+          echo "started=$(date -d @${START} '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null || date -r ${START} '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_OUTPUT
+          echo "finished=$(date '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_OUTPUT
+
+      - name: Slack — success
+        if: success()
+        run: |
+          curl -s -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "text": "✅ *dbt Pipeline — SUCCESS*",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": { "type": "plain_text", "text": "✅ dbt Pipeline Passed" }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    { "type": "mrkdwn", "text": "*Repo:*\n${{ github.repository }}" },
+                    { "type": "mrkdwn", "text": "*Branch:*\n${{ github.ref_name }}" },
+                    { "type": "mrkdwn", "text": "*Triggered by:*\n${{ github.actor }}" },
+                    { "type": "mrkdwn", "text": "*Commit:*\n`${{ github.sha }}`" },
+                    { "type": "mrkdwn", "text": "*Started:*\n${{ steps.runtime.outputs.started }}" },
+                    { "type": "mrkdwn", "text": "*Finished:*\n${{ steps.runtime.outputs.finished }}" },
+                    { "type": "mrkdwn", "text": "*Duration:*\n${{ steps.runtime.outputs.duration }}" },
+                    { "type": "mrkdwn", "text": "*Layers run:*\nStaging → Intermediate → Marts → Snapshot" }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": { "type": "plain_text", "text": "View Run" },
+                      "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }'
+
+      - name: Email — success
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.GMAIL_USER }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          to: ${{ secrets.NOTIFY_EMAIL }}
+          from: GotPhoto dbt Pipeline <${{ secrets.GMAIL_USER }}>
+          subject: "✅ dbt Pipeline SUCCESS — ${{ github.ref_name }} (${{ steps.runtime.outputs.duration }})"
+          body: |
+            dbt Pipeline completed successfully.
+
+            Repository : ${{ github.repository }}
+            Branch     : ${{ github.ref_name }}
+            Commit     : ${{ github.sha }}
+            Triggered  : ${{ github.actor }}
+
+            Started    : ${{ steps.runtime.outputs.started }}
+            Finished   : ${{ steps.runtime.outputs.finished }}
+            Duration   : ${{ steps.runtime.outputs.duration }}
+
+            Layers completed:
+              ✅ Staging models (views)
+              ✅ Staging tests
+              ✅ Mart models (tables)
+              ✅ Mart tests
+              ✅ SCD Type 2 snapshot
+
+            View run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      # ── FAILURE NOTIFICATION ─────────────────────────────────────────────
+      - name: Collect failure details
+        id: failure_info
+        if: failure()
+        run: |
+          # Determine which layer failed
+          FAILED_LAYER="unknown"
+          FAILED_STEP="unknown"
+          ERROR_LOG=""
+
+          if [ "${{ steps.compile.outcome }}" = "failure" ]; then
+            FAILED_LAYER="compile"
+            FAILED_STEP="dbt compile (SQL syntax error)"
+            ERROR_LOG=$(tail -50 /tmp/dbt_compile.log 2>/dev/null || echo "Log not available")
+          elif [ "${{ steps.run_staging.outcome }}" = "failure" ]; then
+            FAILED_LAYER="staging"
+            FAILED_STEP="dbt run — staging layer"
+            ERROR_LOG=$(tail -50 /tmp/dbt_run_staging.log 2>/dev/null || echo "Log not available")
+          elif [ "${{ steps.test_staging.outcome }}" = "failure" ]; then
+            FAILED_LAYER="staging"
+            FAILED_STEP="dbt test — staging layer"
+            ERROR_LOG=$(tail -50 /tmp/dbt_test_staging.log 2>/dev/null || echo "Log not available")
+          elif [ "${{ steps.run_marts.outcome }}" = "failure" ]; then
+            FAILED_LAYER="marts"
+            FAILED_STEP="dbt run — marts layer"
+            ERROR_LOG=$(tail -50 /tmp/dbt_run_marts.log 2>/dev/null || echo "Log not available")
+          elif [ "${{ steps.test_marts.outcome }}" = "failure" ]; then
+            FAILED_LAYER="marts"
+            FAILED_STEP="dbt test — marts layer"
+            ERROR_LOG=$(tail -50 /tmp/dbt_test_marts.log 2>/dev/null || echo "Log not available")
+          elif [ "${{ steps.snapshot.outcome }}" = "failure" ]; then
+            FAILED_LAYER="snapshot"
+            FAILED_STEP="dbt snapshot — orders_snapshot"
+            ERROR_LOG=$(tail -50 /tmp/dbt_snapshot.log 2>/dev/null || echo "Log not available")
+          fi
+
+          # Extract the most relevant error line (first ERROR line)
+          ERROR_SUMMARY=$(echo "$ERROR_LOG" | grep -i "error\|fail\|exception\|database error" | head -5 || echo "See full log in GitHub Actions")
+
+          echo "failed_layer=${FAILED_LAYER}" >> $GITHUB_OUTPUT
+          echo "failed_step=${FAILED_STEP}" >> $GITHUB_OUTPUT
+
+          # Write logs to files for email step (multiline doesn't work in outputs)
+          echo "$ERROR_LOG" > /tmp/error_log.txt
+          echo "$ERROR_SUMMARY" > /tmp/error_summary.txt
+
+      - name: Slack — failure
+        if: failure()
+        run: |
+          ERROR_SUMMARY=$(cat /tmp/error_summary.txt 2>/dev/null | head -3 || echo "Check GitHub Actions for details")
+          curl -s -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"text\": \"🚨 *dbt Pipeline — FAILED*\",
+              \"blocks\": [
+                {
+                  \"type\": \"header\",
+                  \"text\": { \"type\": \"plain_text\", \"text\": \"🚨 dbt Pipeline Failed\" }
+                },
+                {
+                  \"type\": \"section\",
+                  \"fields\": [
+                    { \"type\": \"mrkdwn\", \"text\": \"*Repo:*\n${{ github.repository }}\" },
+                    { \"type\": \"mrkdwn\", \"text\": \"*Branch:*\n${{ github.ref_name }}\" },
+                    { \"type\": \"mrkdwn\", \"text\": \"*Triggered by:*\n${{ github.actor }}\" },
+                    { \"type\": \"mrkdwn\", \"text\": \"*Failed Layer:*\n${{ steps.failure_info.outputs.failed_layer }}\" },
+                    { \"type\": \"mrkdwn\", \"text\": \"*Failed Step:*\n${{ steps.failure_info.outputs.failed_step }}\" },
+                    { \"type\": \"mrkdwn\", \"text\": \"*Started:*\n${{ steps.runtime.outputs.started }}\" },
+                    { \"type\": \"mrkdwn\", \"text\": \"*Duration until failure:*\n${{ steps.runtime.outputs.duration }}\" }
+                  ]
+                },
+                {
+                  \"type\": \"section\",
+                  \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Error:*\n\`\`\`${ERROR_SUMMARY}\`\`\`\" }
+                },
+                {
+                  \"type\": \"actions\",
+                  \"elements\": [
+                    {
+                      \"type\": \"button\",
+                      \"style\": \"danger\",
+                      \"text\": { \"type\": \"plain_text\", \"text\": \"View Failure Logs\" },
+                      \"url\": \"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"
+                    }
+                  ]
+                }
+              ]
+            }"
+
+      - name: Email — failure
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.GMAIL_USER }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          to: ${{ secrets.NOTIFY_EMAIL }}
+          from: GotPhoto dbt Pipeline <${{ secrets.GMAIL_USER }}>
+          subject: "🚨 dbt Pipeline FAILED — ${{ steps.failure_info.outputs.failed_layer }} layer (${{ github.ref_name }})"
+          body: |
+            dbt Pipeline FAILED. Immediate attention required.
+
+            Repository  : ${{ github.repository }}
+            Branch      : ${{ github.ref_name }}
+            Commit      : ${{ github.sha }}
+            Triggered   : ${{ github.actor }}
+
+            Failed Layer: ${{ steps.failure_info.outputs.failed_layer }}
+            Failed Step : ${{ steps.failure_info.outputs.failed_step }}
+
+            Started     : ${{ steps.runtime.outputs.started }}
+            Duration    : ${{ steps.runtime.outputs.duration }} (until failure)
+
+            Step outcomes:
+              compile      : ${{ steps.compile.outcome }}
+              run_staging  : ${{ steps.run_staging.outcome }}
+              test_staging : ${{ steps.test_staging.outcome }}
+              run_marts    : ${{ steps.run_marts.outcome }}
+              test_marts   : ${{ steps.test_marts.outcome }}
+              snapshot     : ${{ steps.snapshot.outcome }}
+
+            ── Error Output (last 50 lines) ──────────────────────────
+          attachments: /tmp/error_log.txt
