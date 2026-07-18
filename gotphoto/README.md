@@ -84,11 +84,11 @@ The RFM model (`mart_customers_rfm`) is the one exception where Python adds real
 
 ### SCD Type 2 Snapshot
 
-`snapshots/orders_snapshot.sql` tracks historical changes to `order_status` and `order_total_price` using dbt's check strategy. This allows point-in-time queries like "What was the order status on a specific date?" and provides a full audit trail for compliance.
+`gotphoto/snapshots/orders_snapshot.sql` tracks historical changes to `order_status` and `order_total_price` using dbt's check strategy. This allows point-in-time queries like "What was the order status on a specific date?" and provides a full audit trail for compliance.
 
 ### safe_divide Macro
 
-`macros/safe_divide.sql` prevents division-by-zero errors across all rate calculations (return_rate, discount_vs_retail, actual_unit_price). It is reused across intermediate and mart models instead of repeating the CASE WHEN logic everywhere.
+`gotphoto/macros/safe_divide.sql` prevents division-by-zero errors across all rate calculations (return_rate, discount_vs_retail, actual_unit_price). It is reused across intermediate and mart models instead of repeating the CASE WHEN logic everywhere.
 
 ---
 
@@ -258,10 +258,10 @@ For GotPhoto at scale, the pipeline could move to event-driven triggering: a stu
 
 ### Data Contracts and Schema Evolution
 
-Source definitions in `src_tpch.yml` act as contracts between the pipeline and the upstream data. If a source column is renamed or dropped, dbt will fail at compile time before any data is processed.
+Source definitions in `gotphoto/models/staging/tpch/src_tpch.yml` act as contracts between the pipeline and the upstream data. If a source column is renamed or dropped, dbt will fail at compile time before any data is processed.
 
 For schema evolution in production:
-- Adding a new column to a source: update `src_tpch.yml` and the relevant staging model. Marts are unaffected unless they need that column.
+- Adding a new column to a source: update `gotphoto/models/staging/tpch/src_tpch.yml` and the relevant staging model. Marts are unaffected unless they need that column.
 - Removing a source column: the contract catches it immediately. The team is alerted before downstream models break.
 - Changing a column type: caught by value and range tests at the staging layer.
 
@@ -275,7 +275,7 @@ Elementary monitors all dbt test results over time. It can detect trends like a 
 
 ### Scalable Ingestion
 
-The staging layer is the only layer that touches raw source data. Swapping TPC-H for real GotPhoto data only requires updating `src_tpch.yml` source pointers. All downstream models stay the same.
+The staging layer is the only layer that touches raw source data. Swapping TPC-H for real GotPhoto data only requires updating `gotphoto/models/staging/tpch/src_tpch.yml` source pointers. All downstream models stay the same.
 
 For production GotPhoto, ingestion patterns would vary by source:
 - **APIs** (e.g. studio booking systems): pull via Airbyte or custom connectors, land in raw schema, picked up by staging
