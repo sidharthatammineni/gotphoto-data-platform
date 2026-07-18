@@ -178,8 +178,14 @@ jobs:
                   "elements": [
                     {
                       "type": "button",
-                      "text": { "type": "plain_text", "text": "View Run" },
+                      "style": "primary",
+                      "text": { "type": "plain_text", "text": "View Test Results" },
                       "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    },
+                    {
+                      "type": "button",
+                      "text": { "type": "plain_text", "text": "View Repo" },
+                      "url": "https://github.com/${{ github.repository }}"
                     }
                   ]
                 }
@@ -217,7 +223,9 @@ jobs:
               ✅ Mart tests
               ✅ SCD Type 2 snapshot
 
-            View run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            ── Links ──────────────────────────────────────────────────
+            Test Results : https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            Repository   : https://github.com/${{ github.repository }}
 
       # ── FAILURE NOTIFICATION ─────────────────────────────────────────────
       - name: Collect failure details
@@ -341,6 +349,10 @@ jobs:
               run_marts    : ${{ steps.run_marts.outcome }}
               test_marts   : ${{ steps.test_marts.outcome }}
               snapshot     : ${{ steps.snapshot.outcome }}
+
+            ── Links ──────────────────────────────────────────────────
+            Test Results : https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            Repository   : https://github.com/${{ github.repository }}
 
             ── Error Output (last 50 lines) ──────────────────────────
           attachments: /tmp/error_log.txt
