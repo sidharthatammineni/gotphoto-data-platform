@@ -209,7 +209,7 @@ For the GotPhoto use case (photo studio orders), the pipeline would trigger on n
 
 - **Data Contracts**: Source definitions in `src_tpch.yml` act as contracts — if the upstream schema changes, `dbt source freshness` and column-level tests will catch it before data reaches marts.
 - **Observability**: Elementary tracks test results over time, enabling anomaly detection and trend-based alerting beyond simple pass/fail.
-- **AI-Agent Readiness**: `mart_customers_rfm` is designed as a direct feed for CRM automation or AI targeting agents — one row per customer with pre-computed segments and scores.
+- **CRM Readiness**: `mart_customers_rfm` is designed as a direct feed for CRM automation and customer targeting — one row per customer with pre-computed segments and scores.
 - **Scalable Ingestion**: The staging layer is the ingestion boundary. Swapping TPC-H for real GotPhoto data only requires updating `src_tpch.yml` source pointers — all downstream models remain unchanged.
 - **Migration Continuity**: SCD Type 2 snapshots ensure historical order state is preserved even as source data mutates, enabling safe migrations and audits.
 
