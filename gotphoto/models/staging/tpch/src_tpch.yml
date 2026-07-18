@@ -1,0 +1,121 @@
+version: 2
+
+sources:
+  - name: tpch
+    database: SNOWFLAKE_SAMPLE_DATA
+    schema: TPCH_SF1
+    description: "TPC-H benchmark dataset at scale factor 1 (~1GB). Contains order, customer, supplier, and product data."
+    config:
+      freshness:
+        warn_after: {count: 7, period: day}
+        error_after: {count: 30, period: day}
+      loaded_at_field: null  # TPC-H is static; freshness checks are illustrative
+
+    tables:
+      - name: orders
+        description: "One row per customer order."
+        columns:
+          - name: o_orderkey
+            description: "Primary key for orders."
+          - name: o_custkey
+            description: "Foreign key to customer."
+          - name: o_orderstatus
+            description: "Order status: O=Open, F=Fulfilled, P=Processing."
+          - name: o_totalprice
+            description: "Total price of the order."
+          - name: o_orderdate
+            description: "Date the order was placed."
+          - name: o_orderpriority
+            description: "Order priority (1-URGENT to 5-LOW)."
+
+      - name: lineitem
+        description: "One row per line item within an order. This is the most granular fact table."
+        columns:
+          - name: l_orderkey
+            description: "Foreign key to orders."
+          - name: l_partkey
+            description: "Foreign key to part."
+          - name: l_suppkey
+            description: "Foreign key to supplier."
+          - name: l_linenumber
+            description: "Line number within the order."
+          - name: l_quantity
+            description: "Quantity ordered."
+          - name: l_extendedprice
+            description: "Gross line item price (quantity * list price)."
+          - name: l_discount
+            description: "Discount rate applied (0.0 to 1.0)."
+          - name: l_tax
+            description: "Tax rate applied."
+          - name: l_returnflag
+            description: "R=Returned, A=Accepted, N=Not returned."
+          - name: l_linestatus
+            description: "O=Open, F=Fulfilled."
+          - name: l_shipdate
+            description: "Date the item was shipped."
+          - name: l_commitdate
+            description: "Committed delivery date."
+          - name: l_receiptdate
+            description: "Date item was received by customer."
+          - name: l_shipmode
+            description: "Shipping mode (AIR, RAIL, SHIP, etc.)."
+
+      - name: customer
+        description: "One row per customer."
+        columns:
+          - name: c_custkey
+            description: "Primary key for customers."
+          - name: c_name
+            description: "Customer name."
+          - name: c_nationkey
+            description: "Foreign key to nation."
+          - name: c_mktsegment
+            description: "Market segment (AUTOMOBILE, BUILDING, FURNITURE, MACHINERY, HOUSEHOLD)."
+          - name: c_acctbal
+            description: "Customer account balance."
+
+      - name: part
+        description: "One row per part/product."
+        columns:
+          - name: p_partkey
+            description: "Primary key for parts."
+          - name: p_name
+            description: "Part name."
+          - name: p_brand
+            description: "Brand of the part."
+          - name: p_type
+            description: "Part type/category."
+          - name: p_size
+            description: "Part size."
+          - name: p_retailprice
+            description: "Retail list price."
+
+      - name: supplier
+        description: "One row per supplier."
+        columns:
+          - name: s_suppkey
+            description: "Primary key for suppliers."
+          - name: s_name
+            description: "Supplier name."
+          - name: s_nationkey
+            description: "Foreign key to nation."
+          - name: s_acctbal
+            description: "Supplier account balance."
+
+      - name: nation
+        description: "Reference table for nations."
+        columns:
+          - name: n_nationkey
+            description: "Primary key for nations."
+          - name: n_name
+            description: "Nation name."
+          - name: n_regionkey
+            description: "Foreign key to region."
+
+      - name: region
+        description: "Reference table for regions."
+        columns:
+          - name: r_regionkey
+            description: "Primary key for regions."
+          - name: r_name
+            description: "Region name (AFRICA, AMERICA, ASIA, EUROPE, MIDDLE EAST)."

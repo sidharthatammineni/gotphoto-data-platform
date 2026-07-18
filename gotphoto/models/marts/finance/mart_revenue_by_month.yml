@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: mart_revenue_by_month
+    description: >
+      Monthly revenue summary by market segment and region. One row per
+      month + market_segment + region + nation.
+      Answers: What is monthly revenue trend? Which segments and regions
+      are growing? What are return and late delivery rates over time?
+    columns:
+      - name: order_month
+        description: "First day of the month. Used as the time dimension for trending."
+        data_tests:
+          - not_null
+      - name: gross_revenue
+        description: "Sum of order_total_price. Pre-discount revenue."
+        data_tests:
+          - not_null
+      - name: net_revenue
+        description: "Sum of net line amounts (after discounts, before tax)."
+        data_tests:
+          - not_null
+      - name: order_count
+        description: "Number of distinct orders in the period."
+        data_tests:
+          - not_null
+      - name: overall_return_rate
+        description: "Returned line items / total line items. Business rule: alert if > 0.05."
+      - name: late_delivery_rate
+        description: "Late deliveries / total line items. Business rule: alert if > 0.10."

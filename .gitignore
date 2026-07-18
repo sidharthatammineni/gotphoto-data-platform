@@ -1,0 +1,21 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# dbt
+gotphoto/target/
+gotphoto/dbt_packages/
+gotphoto/logs/
+gotphoto/edr_target/
+logs/
+
+# IDE
+.idea/
+.vscode/
+
+# Secrets
+.env
+*.env

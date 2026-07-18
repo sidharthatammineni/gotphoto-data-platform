@@ -1,0 +1,3 @@
+slack:
+  notification_webhook: "{{ env_var('SLACK_WEBHOOK_URL') }}"
+  workflows: true

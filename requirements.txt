@@ -1,0 +1,15 @@
+# dbt core + Snowflake adapter
+dbt-snowflake>=1.8.0
+
+# dbt packages (installed via packages.yml, but listed here for reference)
+# dbt-utils, elementary-data
+
+# SQL linting
+sqlfluff>=3.0.0
+sqlfluff-templater-dbt>=3.0.0
+
+# Code quality / pre-commit hooks
+pre-commit>=3.7.0
+
+# Python model support (if using dbt Python models)
+snowflake-snowpark-python>=1.15.0

@@ -1,0 +1,120 @@
+version: 2
+
+models:
+  - name: stg_tpch__orders
+    description: "Cleaned and renamed orders from the TPC-H source. One row per order."
+    columns:
+      - name: order_id
+        description: "Primary key for orders."
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: "Foreign key to customers."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_tpch__customers')
+                field: customer_id
+      - name: order_status
+        description: "O=Open, F=Fulfilled, P=Processing."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['O', 'F', 'P']
+      - name: order_total_price
+        description: "Total order value in USD."
+        data_tests:
+          - not_null
+      - name: order_date
+        description: "Date the order was placed."
+        data_tests:
+          - not_null
+
+  - name: stg_tpch__lineitems
+    description: "Cleaned line items. One row per order line (order_id + line_number)."
+    columns:
+      - name: order_id
+        description: "Foreign key to orders."
+        data_tests:
+          - not_null
+      - name: line_number
+        description: "Line number within the order."
+        data_tests:
+          - not_null
+      - name: gross_amount
+        description: "Gross line item value before discount."
+        data_tests:
+          - not_null
+      - name: discount_rate
+        description: "Discount rate between 0 and 1."
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
+      - name: return_flag
+        description: "R=Returned, A=Accepted, N=Not returned."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['R', 'A', 'N']
+
+  - name: stg_tpch__customers
+    description: "Cleaned customers. One row per customer."
+    columns:
+      - name: customer_id
+        description: "Primary key for customers."
+        data_tests:
+          - unique
+          - not_null
+      - name: market_segment
+        description: "Customer market segment."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['AUTOMOBILE', 'BUILDING', 'FURNITURE', 'MACHINERY', 'HOUSEHOLD']
+
+  - name: stg_tpch__parts
+    description: "Cleaned parts/products. One row per part."
+    columns:
+      - name: part_id
+        description: "Primary key for parts."
+        data_tests:
+          - unique
+          - not_null
+      - name: retail_price
+        description: "List retail price."
+        data_tests:
+          - not_null
+
+  - name: stg_tpch__suppliers
+    description: "Cleaned suppliers. One row per supplier."
+    columns:
+      - name: supplier_id
+        description: "Primary key for suppliers."
+        data_tests:
+          - unique
+          - not_null
+
+  - name: stg_tpch__nations
+    description: "Reference table for nations."
+    columns:
+      - name: nation_id
+        description: "Primary key for nations."
+        data_tests:
+          - unique
+          - not_null
+
+  - name: stg_tpch__regions
+    description: "Reference table for regions."
+    columns:
+      - name: region_id
+        description: "Primary key for regions."
+        data_tests:
+          - unique
+          - not_null
