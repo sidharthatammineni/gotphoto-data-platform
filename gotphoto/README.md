@@ -1,37 +1,38 @@
-# GotPhoto — Data Platform Assignment
+# GotPhoto Data Platform Assignment
 
-A production-minded analytical data product built with **dbt + Snowflake**, using the TPC-H sample dataset. Submitted for the Data Platform Lead role at GotPhoto.
+A production-minded analytical data product built with dbt and Snowflake, using the TPC-H sample dataset. Submitted for the Data Platform Lead role at GotPhoto.
 
 ---
 
 ## Architecture
 
-This project follows the **Medallion Architecture** (Bronze → Silver → Gold):
+This project follows the Medallion Architecture (Bronze, Silver, Gold):
 
 ```
-SNOWFLAKE_SAMPLE_DATA.TPCH_SF1   ← Raw source (external, read-only)
-         │
-         ▼
-  Staging (Bronze)                ← Views: rename + cast raw columns
-         │
-         ▼
-  Intermediate (Silver)           ← Ephemeral CTEs: joins + enrichment
-         │
-         ▼
-  Marts (Gold)                    ← Physical tables: business-ready datasets
+SNOWFLAKE_SAMPLE_DATA.TPCH_SF1   <- Raw source (external, read-only)
+         |
+         v
+  Staging (Bronze)                <- Views: rename and clean raw columns
+         |
+         v
+  Intermediate (Silver)           <- Ephemeral CTEs: joins and enrichment
+         |
+         v
+  Marts (Gold)                    <- Physical tables: business-ready datasets
 ```
 
 | Layer | Materialization | Purpose |
 |---|---|---|
-| `models/staging/` | View | Rename raw TPC-H columns to clean names; no business logic |
-| `models/intermediate/` | Ephemeral | Join and enrich; inlined as CTEs, no Snowflake storage cost |
-| `models/marts/` | Table | Final analytical tables consumed by BI tools and analysts |
+| `models/staging/` | View | Rename raw TPC-H columns to clean names. No business logic. |
+| `models/intermediate/` | Ephemeral | Join and enrich data. Inlined as CTEs, no Snowflake storage cost. |
+| `models/marts/` | Table | Final analytical tables for BI tools and analysts. |
 
 ---
 
 ## Models
 
 ### Staging (7 views)
+
 | Model | Source Table | Rows |
 |---|---|---|
 | `stg_tpch__orders` | ORDERS | 1,500,000 |
@@ -43,56 +44,72 @@ SNOWFLAKE_SAMPLE_DATA.TPCH_SF1   ← Raw source (external, read-only)
 | `stg_tpch__regions` | REGION | 5 |
 
 ### Intermediate (2 ephemeral CTEs)
+
 | Model | Description |
 |---|---|
 | `int_orders__enriched` | Orders joined with customers, nations, regions, and aggregated line items |
 | `int_lineitems__enriched` | Line items joined with parts, suppliers, nations, regions |
 
 ### Marts (4 tables)
-| Model | Rows | Business Questions Answered |
-|---|---|---|
-| `mart_orders` | 1,500,000 | Revenue trends, order volumes, fulfillment rates, return rates by region/segment |
-| `mart_customers` | 99,996 | Customer lifetime value, customer tiers (Platinum/Gold/Silver/Bronze), order history |
-| `mart_customers_rfm` | 99,996 | Who are our most valuable customers? Who is at risk of churning? RFM segmentation for marketing |
-| `mart_revenue_by_month` | ~10,000 | Monthly revenue trends by market segment, nation, region |
+
+| Model | Grain | Rows | Target Users |
+|---|---|---|---|
+| `mart_orders` | One row per order | 1,500,000 | Analysts, Operations, Finance |
+| `mart_customers` | One row per customer | 99,996 | Analysts, CRM, Finance |
+| `mart_customers_rfm` | One row per customer | 99,996 | Marketing, CRM teams |
+| `mart_revenue_by_month` | One row per month, segment, region, nation | ~10,000 | Finance, Executives |
 
 ---
 
 ## Business Questions Answered
 
-1. **Which customers drive the most revenue?** → `mart_customers` (lifetime_revenue, customer_tier)
-2. **Who is at risk of churning?** → `mart_customers_rfm` (rfm_segment = 'At Risk' or 'Lost')
-3. **Which regions and segments are growing?** → `mart_revenue_by_month` (grouped by region_name, market_segment, month)
-4. **How long does it take to fulfill orders?** → `mart_orders` (days_to_first_shipment)
-5. **What is the return rate trend?** → `mart_orders`, `mart_revenue_by_month` (return_rate)
-6. **Which customers should marketing prioritize?** → `mart_customers_rfm` (Champions, Loyal Customers segments)
+1. Which customers drive the most revenue? See `mart_customers` (lifetime_revenue, customer_tier)
+2. Who is at risk of churning? See `mart_customers_rfm` (rfm_segment = 'At Risk' or 'Lost')
+3. Which regions and segments are growing? See `mart_revenue_by_month` (grouped by region_name, market_segment, month)
+4. How long does it take to fulfill orders? See `mart_orders` (days_to_first_shipment)
+5. What is the return rate trend? See `mart_orders` and `mart_revenue_by_month` (return_rate)
+6. Which customers should marketing prioritize? See `mart_customers_rfm` (Champions, Loyal Customers segments)
 
 ---
 
 ## Key Design Decisions
 
-### RFM Scoring (Snowpark Python)
-`mart_customers_rfm` is built using a **Snowpark Python model** — demonstrates Python-native ML-style scoring inside Snowflake without moving data. Uses `percent_rank()` window functions to compute quintile scores (1–5) for Recency, Frequency, and Monetary value, then segments customers into: Champions, Loyal Customers, Potential Loyalists, At Risk, Lost.
+### Why SQL for most models?
+
+SQL is the default for all staging, intermediate, and mart models because it is readable, version-controlled, and easy for any analyst to understand and maintain. Business logic is expressed clearly without needing a Python environment.
+
+### Why Python for the RFM model?
+
+The RFM model (`mart_customers_rfm`) is the one exception where Python adds real value. RFM scoring requires computing quintile rankings across the entire customer dataset, which involves chained window functions and conditional scoring logic. Snowpark Python makes this easier to read and maintain compared to deeply nested SQL. It also runs entirely inside Snowflake so no data moves out.
 
 ### SCD Type 2 Snapshot
-`snapshots/orders_snapshot.sql` tracks historical changes to `order_status` and `order_total_price` using dbt's `check` strategy. Enables point-in-time queries: *"What was the order status on date X?"*
 
-### `safe_divide` Macro
-`macros/safe_divide.sql` prevents division-by-zero across all rate calculations (return_rate, discount_vs_retail, actual_unit_price). Used in intermediate and mart models.
+`snapshots/orders_snapshot.sql` tracks historical changes to `order_status` and `order_total_price` using dbt's check strategy. This allows point-in-time queries like "What was the order status on a specific date?" and provides a full audit trail for compliance.
+
+### safe_divide Macro
+
+`macros/safe_divide.sql` prevents division-by-zero errors across all rate calculations (return_rate, discount_vs_retail, actual_unit_price). It is reused across intermediate and mart models instead of repeating the CASE WHEN logic everywhere.
 
 ---
 
 ## Tests (67 total, all passing)
 
-Tests are configured in `.yml` files co-located with each model layer.
+Tests are configured in `.yml` files placed next to each model.
 
 | Test Type | Purpose | Where Applied |
 |---|---|---|
 | `unique` | No duplicate primary keys | All PKs in staging and marts |
-| `not_null` | Required fields are populated | All key columns |
-| `accepted_values` | Enum validation | order_status (O/F/P), market_segment, customer_tier, rfm_segment, return_flag |
-| `dbt_utils.accepted_range` | Numeric bounds | discount_rate (0–1), RFM scores (1–5), rfm_score (3–15) |
-| `relationships` | Referential integrity | FK → PK checks across staging and mart layers |
+| `not_null` | Required fields are always populated | All key columns |
+| `accepted_values` | Enum fields only contain valid values | order_status (O/F/P), market_segment, customer_tier, rfm_segment, return_flag |
+| `dbt_utils.accepted_range` | Numeric fields stay within valid bounds | discount_rate (0 to 1), RFM scores (1 to 5), rfm_score (3 to 15) |
+| `relationships` | Foreign keys point to valid primary keys | FK to PK checks across staging and mart layers |
+
+### Why these tests?
+
+- **unique and not_null** catch the most common data quality issues: duplicate records and missing values that would silently break downstream reports.
+- **accepted_values** ensures business-critical enums like order_status and customer_tier never contain unexpected values that would make dashboards misleading.
+- **accepted_range** validates that calculated scores like RFM quintiles always fall within the expected 1 to 5 range. If the scoring logic breaks, this catches it immediately.
+- **relationships** validates referential integrity across models. For example, every order must have a valid customer. Without this, joins in marts would silently drop rows.
 
 Run all tests:
 ```bash
@@ -106,6 +123,21 @@ dbt test --select mart_customers_rfm
 
 ---
 
+## Source Validations
+
+Configured in `models/staging/tpch/src_tpch.yml`.
+
+- **Freshness checks**: warn if source data is older than 7 days, error if older than 30 days. This catches upstream pipeline failures before bad data reaches marts.
+- **Volume checks**: row count tests on key tables ensure the source did not deliver an empty or truncated load.
+- **Value checks**: accepted_values tests on source columns (e.g. order_status, return_flag) catch schema changes or unexpected values at the earliest possible point in the pipeline.
+
+Run source freshness check:
+```bash
+dbt source freshness
+```
+
+---
+
 ## How to Run
 
 ### Prerequisites
@@ -115,18 +147,16 @@ dbt test --select mart_customers_rfm
 
 ### Setup
 ```bash
-# Clone and set up virtual environment
-cd GotPhoto
+git clone https://github.com/sidharthatammineni/gotphoto-data-platform.git
+cd gotphoto-data-platform
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
-# Install dbt packages (dbt_utils, elementary)
 cd gotphoto
 dbt deps
 ```
 
-### `~/.dbt/profiles.yml`
+### profiles.yml
 ```yaml
 gotphoto:
   outputs:
@@ -153,23 +183,22 @@ dbt snapshot     # Run SCD Type 2 snapshot on orders
 ### Run individual layers
 ```bash
 dbt run --select staging
-dbt run --select intermediate
 dbt run --select marts
-dbt run --select mart_customers_rfm   # Python model
+dbt run --select mart_customers_rfm
 ```
 
 ---
 
-## Observability & Alerting
+## Observability and Alerting
 
-[Elementary](https://www.elementary-data.com/) is configured for data observability.
+Elementary is configured for data observability. It tracks test results over time and sends Slack alerts when tests fail.
 
 ### Initialize Elementary (first time only)
 ```bash
 dbt run -s elementary
 ```
 
-### Send Slack alerts for test failures
+### Send Slack alerts
 ```bash
 edr monitor \
   --slack-webhook "<your-slack-webhook-url>" \
@@ -178,50 +207,88 @@ edr monitor \
   --days-back 1
 ```
 
-Elementary monitors all dbt test results and sends Slack notifications when tests fail, including which model, which test, and how many rows failed.
+---
+
+## CI/CD
+
+GitHub Actions runs on every push to `main` and can also be triggered manually from the Actions tab.
+
+Pipeline steps:
+1. Install dependencies
+2. dbt compile (syntax check)
+3. dbt run and test on staging
+4. dbt run and test on marts
+5. dbt snapshot
+6. Elementary alerts
+7. Slack and email notification with run status, duration, and link to results
 
 ---
 
 ## Orchestration Strategy
 
-For production, this pipeline would be orchestrated with **Airflow** (or Dagster):
+For production, this pipeline would be orchestrated with Airflow or Dagster:
 
 ```
 Daily DAG:
-  1. source freshness check     → dbt source freshness
-  2. run staging models         → dbt run --select staging
-  3. run marts                  → dbt run --select marts
-  4. run snapshot               → dbt snapshot
-  5. run all tests              → dbt test
-  6. send Elementary alerts     → edr monitor ...
+  1. Source freshness check     -> dbt source freshness
+  2. Run staging models         -> dbt run --select staging
+  3. Run mart models            -> dbt run --select marts
+  4. Run snapshot               -> dbt snapshot
+  5. Run all tests              -> dbt test
+  6. Send Elementary alerts     -> edr monitor
 ```
 
 Scheduling rationale:
-- **Staging + Marts**: daily (TPC-H is batch; real GotPhoto data would follow upload cadence)
-- **Snapshot**: daily to capture any order status changes (SCD Type 2)
-- **Tests**: after every run to catch data quality issues before downstream consumers see bad data
+- **Staging and Marts**: daily, following the upload cadence of photo studios
+- **Snapshot**: daily to capture order status changes for the audit trail
+- **Tests**: after every run so bad data is caught before analysts see it
 
-For the GotPhoto use case (photo studio orders), the pipeline would trigger on new uploads from studios rather than on a fixed schedule — event-driven via S3/Kafka → Snowpipe → dbt.
+For GotPhoto specifically, the pipeline would ideally trigger on new uploads from studios rather than a fixed schedule. This would be event-driven: studio uploads files to S3, Snowpipe picks it up, dbt runs automatically.
 
 ---
 
 ## Production Readiness Notes
 
-- **Data Contracts**: Source definitions in `src_tpch.yml` act as contracts — if the upstream schema changes, `dbt source freshness` and column-level tests will catch it before data reaches marts.
-- **Observability**: Elementary tracks test results over time, enabling anomaly detection and trend-based alerting beyond simple pass/fail.
-- **AI-Agent Readiness**: `mart_customers_rfm` is structured for direct consumption by AI agents and CRM automation — one row per customer, pre-computed segments and scores, no joins required downstream. Metric definitions and grain are documented per column so agents can query without human interpretation.
-- **Scalable Ingestion**: The staging layer is the ingestion boundary — the only layer that touches raw source data. Swapping TPC-H for real GotPhoto data only requires updating `src_tpch.yml` source pointers; all downstream models remain unchanged. For production GotPhoto, ingestion patterns would vary by source type:
-  - **APIs** (e.g. studio booking systems): pull via Airbyte or custom connectors → land in raw schema → picked up by staging
-  - **Files** (e.g. CSV uploads from studios): land in S3/GCS → Snowpipe auto-ingest → raw tables → staging
-  - **Databases** (e.g. transactional Postgres): CDC via Debezium or Fivetran → raw schema → staging
-  - **Event streams** (e.g. order events, photo uploads): Kafka → Snowpipe Streaming → append-only raw tables → incremental staging models
-  - The staging layer abstracts all source complexity — marts never know or care where the data came from.
-- **Compliance & Access Control**: In a production GotPhoto environment:
-  - Snowflake **row-level security** and **column masking policies** would restrict PII (customer names, emails) to authorized roles only
-  - dbt **schema separation** (staging/marts in separate schemas) allows fine-grained GRANT permissions — analysts get read access to marts only, never raw staging
-  - **Data retention policies** enforced via Snowflake Time Travel and fail-safe settings per table
-  - SCD Type 2 snapshots provide a full audit trail of data changes, meeting compliance requirements for financial and order data
-- **Migration Continuity**: SCD Type 2 snapshots ensure historical order state is preserved even as source data mutates, enabling safe migrations and audits. During platform migrations (e.g. moving from a legacy system to Snowflake), marts continue serving dashboards uninterrupted because the transformation logic is decoupled from the source.
+### Data Contracts and Schema Evolution
+
+Source definitions in `src_tpch.yml` act as contracts between the pipeline and the upstream data. If a source column is renamed or dropped, dbt will fail at compile time before any data is processed.
+
+For schema evolution in production:
+- Adding a new column to a source: update `src_tpch.yml` and the relevant staging model. Marts are unaffected unless they need that column.
+- Removing a source column: the contract catches it immediately. The team is alerted before downstream models break.
+- Changing a column type: caught by value and range tests at the staging layer.
+
+### Observability and Reliability
+
+Elementary monitors all dbt test results over time. It can detect trends like a slowly increasing number of null values, which a one-time test would miss. Alerts go to Slack and email so issues are caught quickly.
+
+### AI-Agent Readiness
+
+`mart_customers_rfm` is structured for direct consumption by AI agents and CRM automation tools. It has one row per customer, pre-computed segments and scores, and no joins required. Every column has a description and grain documented so an agent can query it without additional human context.
+
+### Scalable Ingestion
+
+The staging layer is the only layer that touches raw source data. Swapping TPC-H for real GotPhoto data only requires updating `src_tpch.yml` source pointers. All downstream models stay the same.
+
+For production GotPhoto, ingestion patterns would vary by source:
+- **APIs** (e.g. studio booking systems): pull via Airbyte or custom connectors, land in raw schema, picked up by staging
+- **Files** (e.g. CSV uploads from studios): land in S3, Snowpipe auto-ingest, raw tables, staging
+- **Databases** (e.g. transactional Postgres): CDC via Debezium or Fivetran, raw schema, staging
+- **Event streams** (e.g. order events, photo uploads): Kafka, Snowpipe Streaming, append-only raw tables, incremental staging models
+
+The staging layer abstracts all source complexity. Marts never know or care where the data came from.
+
+### Compliance and Access Control
+
+In a production GotPhoto environment:
+- Snowflake row-level security and column masking policies would restrict PII (customer names, emails) to authorized roles only
+- dbt schema separation (staging and marts in separate schemas) allows fine-grained GRANT permissions. Analysts get read access to marts only, never raw staging.
+- Data retention policies enforced via Snowflake Time Travel and fail-safe settings per table
+- SCD Type 2 snapshots provide a full audit trail of data changes for financial and order data
+
+### Migration Continuity
+
+SCD Type 2 snapshots preserve historical order state even when source data changes. During a platform migration, marts keep serving dashboards without interruption because the transformation logic is decoupled from the source system.
 
 ---
 
@@ -229,23 +296,23 @@ For the GotPhoto use case (photo studio orders), the pipeline would trigger on n
 
 ```
 gotphoto/
-├── dbt_project.yml              # Project config, materializations by layer
-├── packages.yml                 # dbt_utils, elementary
-├── elementary_config.yml        # Slack webhook config
+├── dbt_project.yml
+├── packages.yml
+├── elementary_config.yml
 ├── macros/
-│   └── safe_divide.sql          # Division-by-zero safe macro
+│   └── safe_divide.sql
 ├── models/
 │   ├── staging/tpch/
-│   │   ├── src_tpch.yml         # Source definitions + freshness checks
-│   │   ├── stg_tpch.yml         # Staging model tests
-│   │   └── stg_tpch__*.sql      # 7 staging views
+│   │   ├── src_tpch.yml
+│   │   ├── stg_tpch.yml
+│   │   └── stg_tpch__*.sql (7 files)
 │   ├── intermediate/
 │   │   ├── int_orders__enriched.sql
 │   │   └── int_lineitems__enriched.sql
 │   └── marts/
 │       ├── customers/
 │       │   ├── mart_customers.sql
-│       │   ├── mart_customers_rfm.py    # Snowpark Python model
+│       │   ├── mart_customers_rfm.py
 │       │   └── *.yml
 │       ├── orders/
 │       │   ├── mart_orders.sql
@@ -254,5 +321,5 @@ gotphoto/
 │           ├── mart_revenue_by_month.sql
 │           └── mart_revenue_by_month.yml
 └── snapshots/
-    └── orders_snapshot.sql      # SCD Type 2 on order_status + order_total_price
+    └── orders_snapshot.sql
 ```
