@@ -226,16 +226,23 @@ Pipeline steps:
 
 ## Orchestration Strategy
 
-For production, this pipeline would be orchestrated with Airflow or Dagster:
+This pipeline runs in two ways:
+
+**1. On every code push (CI/CD)**
+Any push to the `main` branch triggers GitHub Actions automatically. This ensures code changes are tested against real Snowflake data before they are considered done.
+
+**2. On a daily schedule**
+GitHub Actions is also configured with a cron schedule to run the pipeline every day at 6:00 AM UTC. This refreshes the mart tables with the latest data daily, without needing Airflow or Dagster.
 
 ```
-Daily DAG:
+Daily run (6:00 AM UTC):
   1. Source freshness check     -> dbt source freshness
   2. Run staging models         -> dbt run --select staging
   3. Run mart models            -> dbt run --select marts
   4. Run snapshot               -> dbt snapshot
   5. Run all tests              -> dbt test
   6. Send Elementary alerts     -> edr monitor
+  7. Slack and email notification with results
 ```
 
 Scheduling rationale:
@@ -243,7 +250,7 @@ Scheduling rationale:
 - **Snapshot**: daily to capture order status changes for the audit trail
 - **Tests**: after every run so bad data is caught before analysts see it
 
-For GotPhoto specifically, the pipeline would ideally trigger on new uploads from studios rather than a fixed schedule. This would be event-driven: studio uploads files to S3, Snowpipe picks it up, dbt runs automatically.
+For GotPhoto at scale, the pipeline could move to event-driven triggering: a studio uploads files to S3, Snowpipe picks it up, and dbt runs automatically. At that point, a dedicated orchestrator like Airflow or Dagster would give more control over dependencies, retries, and parallelism across many pipelines. For the current scope, GitHub Actions scheduling is sufficient.
 
 ---
 
