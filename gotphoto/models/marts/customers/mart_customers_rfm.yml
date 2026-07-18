@@ -8,7 +8,7 @@ models:
       Answers: Who are our most valuable customers? Who is at risk of churning?
       Which customers should marketing prioritize?
       Grain: one row per customer_id.
-      Target users: Marketing, CRM teams, customer targeting campaigns.
+      Target users: Marketing, CRM teams, AI agents for customer targeting and workflow automation.
     columns:
       - name: customer_id
         description: "Primary key. Unique identifier per customer."
