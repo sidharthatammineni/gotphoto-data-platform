@@ -210,8 +210,18 @@ For the GotPhoto use case (photo studio orders), the pipeline would trigger on n
 - **Data Contracts**: Source definitions in `src_tpch.yml` act as contracts — if the upstream schema changes, `dbt source freshness` and column-level tests will catch it before data reaches marts.
 - **Observability**: Elementary tracks test results over time, enabling anomaly detection and trend-based alerting beyond simple pass/fail.
 - **AI-Agent Readiness**: `mart_customers_rfm` is structured for direct consumption by AI agents and CRM automation — one row per customer, pre-computed segments and scores, no joins required downstream. Metric definitions and grain are documented per column so agents can query without human interpretation.
-- **Scalable Ingestion**: The staging layer is the ingestion boundary. Swapping TPC-H for real GotPhoto data only requires updating `src_tpch.yml` source pointers — all downstream models remain unchanged.
-- **Migration Continuity**: SCD Type 2 snapshots ensure historical order state is preserved even as source data mutates, enabling safe migrations and audits.
+- **Scalable Ingestion**: The staging layer is the ingestion boundary — the only layer that touches raw source data. Swapping TPC-H for real GotPhoto data only requires updating `src_tpch.yml` source pointers; all downstream models remain unchanged. For production GotPhoto, ingestion patterns would vary by source type:
+  - **APIs** (e.g. studio booking systems): pull via Airbyte or custom connectors → land in raw schema → picked up by staging
+  - **Files** (e.g. CSV uploads from studios): land in S3/GCS → Snowpipe auto-ingest → raw tables → staging
+  - **Databases** (e.g. transactional Postgres): CDC via Debezium or Fivetran → raw schema → staging
+  - **Event streams** (e.g. order events, photo uploads): Kafka → Snowpipe Streaming → append-only raw tables → incremental staging models
+  - The staging layer abstracts all source complexity — marts never know or care where the data came from.
+- **Compliance & Access Control**: In a production GotPhoto environment:
+  - Snowflake **row-level security** and **column masking policies** would restrict PII (customer names, emails) to authorized roles only
+  - dbt **schema separation** (staging/marts in separate schemas) allows fine-grained GRANT permissions — analysts get read access to marts only, never raw staging
+  - **Data retention policies** enforced via Snowflake Time Travel and fail-safe settings per table
+  - SCD Type 2 snapshots provide a full audit trail of data changes, meeting compliance requirements for financial and order data
+- **Migration Continuity**: SCD Type 2 snapshots ensure historical order state is preserved even as source data mutates, enabling safe migrations and audits. During platform migrations (e.g. moving from a legacy system to Snowflake), marts continue serving dashboards uninterrupted because the transformation logic is decoupled from the source.
 
 ---
 
