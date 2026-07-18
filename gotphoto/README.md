@@ -111,6 +111,12 @@ Tests are configured in `.yml` files placed next to each model.
 - **accepted_range** validates that calculated scores like RFM quintiles always fall within the expected 1 to 5 range. If the scoring logic breaks, this catches it immediately.
 - **relationships** validates referential integrity across models. For example, every order must have a valid customer. Without this, joins in marts would silently drop rows.
 
+### Note on Snowflake and column contract enforcement
+
+Snowflake does not throw a SQL error when a column referenced in a CTE does not exist in the source table. Instead it returns NULL silently and the model builds successfully with bad data. This means SQL alone cannot catch a renamed or dropped source column.
+
+This is why not_null, unique, and relationships tests are configured on every key column. They are the actual enforcement mechanism. When a source column breaks, the model builds but the tests fail immediately, the pipeline stops, and a failure alert is sent to Slack and email. This behavior was verified by simulation during development.
+
 Run all tests:
 ```bash
 dbt test
