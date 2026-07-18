@@ -16,6 +16,9 @@ logs/
 .idea/
 .vscode/
 
+# IDE / tool config
+.claude/
+
 # Secrets
 .env
 *.env
