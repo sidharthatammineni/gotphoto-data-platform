@@ -1,6 +1,6 @@
 with source as (
     select
-        o_orderkey,
+        o_orderkey_fake,
         o_custkey,
         o_orderstatus,
         o_totalprice,
