@@ -179,7 +179,7 @@ jobs:
                     {
                       "type": "button",
                       "style": "primary",
-                      "text": { "type": "plain_text", "text": "View Test Results" },
+                      "text": { "type": "plain_text", "text": "View Results" },
                       "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
                     },
                     {
