@@ -1,5 +1,22 @@
 with source as (
-    select * from {{ source('tpch', 'lineitem') }}
+    select
+        l_orderkey,
+        l_partkey,
+        l_suppkey,
+        l_linenumber,
+        l_quantity,
+        l_extendedprice,
+        l_discount,
+        l_tax,
+        l_returnflag,
+        l_linestatus,
+        l_shipdate,
+        l_commitdate,
+        l_receiptdate,
+        l_shipinstruct,
+        l_shipmode,
+        l_comment
+    from {{ source('tpch', 'lineitem') }}
 ),
 
 renamed as (
@@ -21,7 +38,7 @@ renamed as (
         l_commitdate                                        as commit_date,
         l_receiptdate                                       as receipt_date,
         datediff('day', l_shipdate, l_receiptdate)          as days_to_receive,
-        datediff('day', l_commitdate, l_receiptdate)        as days_late, -- positive = late
+        datediff('day', l_commitdate, l_receiptdate)        as days_late,
         l_shipinstruct                                      as ship_instructions,
         l_shipmode                                          as ship_mode,
         l_comment                                           as line_comment

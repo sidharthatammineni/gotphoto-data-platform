@@ -1,5 +1,10 @@
 with source as (
-    select * from {{ source('tpch', 'nation') }}
+    select
+        n_nationkey,
+        n_name,
+        n_regionkey,
+        n_comment
+    from {{ source('tpch', 'nation') }}
 ),
 
 renamed as (
