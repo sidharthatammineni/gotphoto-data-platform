@@ -8,7 +8,7 @@ This project builds an end-to-end analytical pipeline that transforms raw TPC-H 
 
 ## Architecture
 
-![Architecture](docs/architecture.png)
+![Architecture](docs/Architecture.png)
 
 This project follows the Medallion Architecture (Bronze, Silver, Gold):
 
