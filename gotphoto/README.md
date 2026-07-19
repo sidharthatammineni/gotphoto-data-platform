@@ -2,6 +2,8 @@
 
 A production-minded analytical data product built with dbt and Snowflake, using the TPC-H sample dataset. Submitted for the Data Platform Lead role at GotPhoto.
 
+This project builds an end-to-end analytical pipeline that transforms raw TPC-H data into business-ready insights, using it as a proxy for GotPhoto's photo studio business. The pipeline answers questions like which customers drive the most revenue, which regions are growing, and who is at risk of stopping orders. The output is a set of clean, tested, and documented mart tables ready for analysts and BI tools.
+
 ---
 
 ## Architecture
@@ -52,19 +54,19 @@ SNOWFLAKE_SAMPLE_DATA.TPCH_SF1   <- Raw source (external, read-only)
 
 ### Marts (4 tables)
 
-| Model | Grain | Rows | Target Users |
-|---|---|---|---|
-| `mart_orders` | One row per order | 1,500,000 | Analysts, Operations, Finance |
-| `mart_customers` | One row per customer | 99,996 | Analysts, CRM, Finance |
-| `mart_customers_rfm` | One row per customer | 99,996 | Marketing, CRM teams |
-| `mart_revenue_by_month` | One row per month, segment, region, nation | ~10,000 | Finance, Executives |
+| Model | Grain | Rows | What it contains | Target Users |
+|---|---|---|---|---|
+| `mart_orders` | One row per order | 1,500,000 | Order performance, fulfillment time, return rates | Analysts, Operations, Finance |
+| `mart_customers` | One row per customer | 99,996 | Lifetime revenue, average order value, customer tier (Platinum/Gold/Silver/Bronze) | Analysts, CRM, Finance |
+| `mart_customers_rfm` | One row per customer | 99,996 | RFM scores, customer segments (Champions/Loyal/At Risk/Lost) | Marketing, CRM teams |
+| `mart_revenue_by_month` | One row per month, segment, region, nation | ~10,000 | Monthly revenue trends broken down by region, nation, and market segment | Finance, Executives |
 
 ---
 
 ## Business Questions Answered
 
 1. Which customers drive the most revenue? See `mart_customers` (lifetime_revenue, customer_tier)
-2. Who is at risk of churning? See `mart_customers_rfm` (rfm_segment = 'At Risk' or 'Lost')
+2. Who is at risk of stopping orders? See `mart_customers_rfm` (rfm_segment = 'At Risk' or 'Lost')
 3. Which regions and segments are growing? See `mart_revenue_by_month` (grouped by region_name, market_segment, month)
 4. How long does it take to fulfill orders? See `mart_orders` (days_to_first_shipment)
 5. What is the return rate trend? See `mart_orders` and `mart_revenue_by_month` (return_rate)
@@ -88,7 +90,7 @@ The RFM model (`mart_customers_rfm`) is the one exception where Python adds real
 
 ### safe_divide Macro
 
-`gotphoto/macros/safe_divide.sql` prevents division-by-zero errors across all rate calculations (return_rate, discount_vs_retail, actual_unit_price). It is reused across intermediate and mart models instead of repeating the CASE WHEN logic everywhere.
+`gotphoto/macros/safe_divide.sql` prevents division-by-zero errors across all rate calculations (return_rate, discount_vs_retail, actual_unit_price). It is used in `gotphoto/models/intermediate/int_orders__enriched.sql` and `gotphoto/models/intermediate/int_lineitems__enriched.sql` instead of repeating the CASE WHEN logic everywhere.
 
 ---
 
@@ -117,15 +119,7 @@ Snowflake does not throw a SQL error when a column referenced in a CTE does not 
 
 This is why not_null, unique, and relationships tests are configured on every key column. They are the actual enforcement mechanism. When a source column breaks, the model builds but the tests fail immediately, the pipeline stops, and a failure alert is sent to Slack and email. This behavior was verified by simulation during development.
 
-Run all tests:
-```bash
-dbt test
-```
-
-Run tests for a specific model:
-```bash
-dbt test --select mart_customers_rfm
-```
+See the How to Run section for commands to execute tests.
 
 ---
 
@@ -147,7 +141,7 @@ dbt source freshness
 ## How to Run
 
 ### Prerequisites
-- Python 3.12+
+- Python 3.12+ — download from [python.org](https://www.python.org/downloads/) for Windows, or install via Homebrew on Mac: `brew install python@3.12`
 - Snowflake account with access to `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1`
 - `~/.dbt/profiles.yml` configured (see below)
 
@@ -175,7 +169,7 @@ gotphoto:
       database: GOTPHOTO_DEV
       schema: dbt_dev
       warehouse: COMPUTE_WH
-      threads: 4
+      threads: 4        # runs up to 4 dbt models in parallel, reducing total pipeline runtime
   target: dev
 ```
 
@@ -191,6 +185,12 @@ dbt snapshot     # Run SCD Type 2 snapshot on orders
 dbt run --select staging
 dbt run --select marts
 dbt run --select mart_customers_rfm
+```
+
+### Run tests
+```bash
+dbt test                                  # Run all 67 tests
+dbt test --select mart_customers_rfm      # Run tests for a specific model
 ```
 
 ---
@@ -212,6 +212,19 @@ edr monitor \
   --profiles-dir ~/.dbt \
   --days-back 1
 ```
+
+### Email and Slack alerts
+
+The CI/CD pipeline sends both Slack and email notifications on every run. Success alerts include the run duration and a link to the results. Failure alerts include which step failed, the error message, and the run duration.
+
+Both are configured in `.github/workflows/dbt_ci.yml`. To disable either, comment out the relevant steps:
+
+| Alert | Step name | Line |
+|---|---|---|
+| Slack success | `Slack — success` | 153 |
+| Slack failure | `Slack — failure` | 278 |
+| Email success | `Email — success` | 197 |
+| Email failure | `Email — failure` | 321 |
 
 ---
 
@@ -256,7 +269,6 @@ Scheduling rationale:
 - **Snapshot**: daily to capture order status changes for the audit trail
 - **Tests**: after every run so bad data is caught before analysts see it
 
-For GotPhoto at scale, the pipeline could move to event-driven triggering: a studio uploads files to S3, Snowpipe picks it up, and dbt runs automatically. At that point, a dedicated orchestrator like Airflow or Dagster would give more control over dependencies, retries, and parallelism across many pipelines. For the current scope, GitHub Actions scheduling is sufficient.
 
 ---
 
@@ -275,19 +287,32 @@ For schema evolution in production:
 
 Elementary monitors all dbt test results over time. It can detect trends like a slowly increasing number of null values, which a one-time test would miss. Alerts go to Slack and email so issues are caught quickly.
 
-### AI-Agent Readiness
-
-`mart_customers_rfm` is structured for direct consumption by AI agents and CRM automation tools. It has one row per customer, pre-computed segments and scores, and no joins required. Every column has a description and grain documented so an agent can query it without additional human context.
 
 ### Scalable Ingestion
 
-The staging layer is the only layer that touches raw source data. Swapping TPC-H for real GotPhoto data only requires updating `gotphoto/models/staging/tpch/src_tpch.yml` source pointers. All downstream models stay the same.
+The staging layer is the only layer that touches raw source data.
+
+### Mapping to GotPhoto
+
+This pipeline was built using TPC-H as a proxy for GotPhoto's photo studio business. The mart layer models concepts like orders, customers and revenue trends, but these are based on TPC-H structure, not GotPhoto's actual schema. Once GotPhoto's real data schema is available, the staging layer would be updated to point to the correct source tables, and the intermediate and mart layers would be revised to match the actual business entities and metrics.
 
 For production GotPhoto, ingestion patterns would vary by source:
 - **APIs** (e.g. studio booking systems): pull via Airbyte or custom connectors, land in raw schema, picked up by staging
 - **Files** (e.g. CSV uploads from studios): land in S3, Snowpipe auto-ingest, raw tables, staging
 - **Databases** (e.g. transactional Postgres): CDC via Debezium or Fivetran, raw schema, staging
 - **Event streams** (e.g. order events, photo uploads): Kafka, Snowpipe Streaming, append-only raw tables, incremental staging models
+
+## AI Readiness
+
+`mart_customers_rfm` is built for direct consumption by AI agents and CRM tools. One row per customer, pre-computed RFM scores and segments, no joins required. Every column has a description and grain documented so an agent can query it without additional human context.
+
+All mart tables follow the same principle: self-contained, clearly defined grain, fully documented in their `.yml` files.
+
+---
+
+## Event Driven Readiness
+
+For production GotPhoto, the pipeline can move to event-driven triggering. When a studio uploads files to S3, Snowpipe picks it up automatically and triggers dbt to run, with no manual scheduling needed. At that point, an orchestrator like Airflow or Dagster would handle dependencies, retries, and parallelism across multiple pipelines.
 
 The staging layer abstracts all source complexity. Marts never know or care where the data came from.
 
