@@ -88,6 +88,10 @@ The RFM model (`mart_customers_rfm`) is the one exception where Python adds real
 
 `gotphoto/snapshots/orders_snapshot.sql` tracks historical changes to `order_status` and `order_total_price` using dbt's check strategy. This allows point-in-time queries like "What was the order status on a specific date?" and provides a full audit trail for compliance.
 
+### Why ephemeral for intermediate models?
+
+Intermediate models are pure joining logic with no standalone business value. Running them as ephemeral inlines them as CTEs inside mart queries at runtime. Zero storage cost, no extra Snowflake objects.
+
 ### safe_divide Macro
 
 `gotphoto/macros/safe_divide.sql` prevents division-by-zero errors across all rate calculations (return_rate, discount_vs_retail, actual_unit_price). It is used in `gotphoto/models/intermediate/int_orders__enriched.sql` and `gotphoto/models/intermediate/int_lineitems__enriched.sql` instead of repeating the CASE WHEN logic everywhere.
@@ -141,7 +145,7 @@ dbt source freshness
 ## How to Run
 
 ### Prerequisites
-- Python 3.12+ — download from [python.org](https://www.python.org/downloads/) for Windows, or install via Homebrew on Mac: `brew install python@3.12`
+- Python 3.12+. Download from [python.org](https://www.python.org/downloads/) for Windows, or install via Homebrew on Mac: `brew install python@3.12`
 - Snowflake account with access to `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1`
 - `~/.dbt/profiles.yml` configured (see below)
 
@@ -287,6 +291,34 @@ For schema evolution in production:
 
 Elementary monitors all dbt test results over time. It can detect trends like a slowly increasing number of null values, which a one-time test would miss. Alerts go to Slack and email so issues are caught quickly.
 
+### Compliance and Access Control
+
+In a production GotPhoto environment:
+- Snowflake row-level security and column masking policies would restrict PII (customer names, emails) to authorized roles only
+- dbt schema separation (staging and marts in separate schemas) allows fine-grained GRANT permissions. Analysts get read access to marts only, never raw staging.
+- Data retention policies enforced via Snowflake Time Travel and fail-safe settings per table
+- SCD Type 2 snapshots provide a full audit trail of data changes for financial and order data
+
+### Migration Continuity
+
+SCD Type 2 snapshots preserve historical order state even when source data changes. During a platform migration, marts keep serving dashboards without interruption because the transformation logic is decoupled from the source system.
+
+### AI Readiness
+
+`mart_customers_rfm` is built for direct consumption by AI agents and CRM tools. One row per customer, pre-computed RFM scores and segments, no joins required. Every column has a description and grain documented so an agent can query it without additional human context.
+
+All mart tables follow the same principle: self-contained, clearly defined grain, fully documented in their `.yml` files.
+
+Example metrics and rules an AI agent or CRM tool can apply directly from the mart tables, with no additional joins or transformations needed:
+
+| Rule | Source Column | Action |
+|---|---|---|
+| `rfm_segment = 'At Risk'` | `mart_customers_rfm` | Trigger re-engagement campaign with a discount |
+| `rfm_segment = 'Lost'` | `mart_customers_rfm` | Trigger win-back campaign, move to inactive after 30 days with no response |
+| `rfm_segment = 'Champions'` | `mart_customers_rfm` | Reward with loyalty incentives or early access |
+| `customer_tier = 'Platinum'` | `mart_customers` | Assign dedicated account manager, priority support |
+| `avg_days_to_shipment > 10` | `mart_customers` | Flag for operations review |
+| `avg_return_rate > 0.3` | `mart_customers` | Flag for CRM follow-up on order quality |
 
 ### Scalable Ingestion
 
@@ -302,31 +334,11 @@ For production GotPhoto, ingestion patterns would vary by source:
 - **Databases** (e.g. transactional Postgres): CDC via Debezium or Fivetran, raw schema, staging
 - **Event streams** (e.g. order events, photo uploads): Kafka, Snowpipe Streaming, append-only raw tables, incremental staging models
 
-## AI Readiness
-
-`mart_customers_rfm` is built for direct consumption by AI agents and CRM tools. One row per customer, pre-computed RFM scores and segments, no joins required. Every column has a description and grain documented so an agent can query it without additional human context.
-
-All mart tables follow the same principle: self-contained, clearly defined grain, fully documented in their `.yml` files.
-
----
-
-## Event Driven Readiness
+### Event Driven Readiness
 
 For production GotPhoto, the pipeline can move to event-driven triggering. When a studio uploads files to S3, Snowpipe picks it up automatically and triggers dbt to run, with no manual scheduling needed. At that point, an orchestrator like Airflow or Dagster would handle dependencies, retries, and parallelism across multiple pipelines.
 
 The staging layer abstracts all source complexity. Marts never know or care where the data came from.
-
-### Compliance and Access Control
-
-In a production GotPhoto environment:
-- Snowflake row-level security and column masking policies would restrict PII (customer names, emails) to authorized roles only
-- dbt schema separation (staging and marts in separate schemas) allows fine-grained GRANT permissions. Analysts get read access to marts only, never raw staging.
-- Data retention policies enforced via Snowflake Time Travel and fail-safe settings per table
-- SCD Type 2 snapshots provide a full audit trail of data changes for financial and order data
-
-### Migration Continuity
-
-SCD Type 2 snapshots preserve historical order state even when source data changes. During a platform migration, marts keep serving dashboards without interruption because the transformation logic is decoupled from the source system.
 
 ---
 
